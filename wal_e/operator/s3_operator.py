@@ -17,6 +17,7 @@ import sys
 import tempfile
 import textwrap
 
+import wal_e.constants as constants
 import wal_e.worker.s3_worker as s3_worker
 import wal_e.tar_partition as tar_partition
 import wal_e.log_help as log_help
@@ -148,9 +149,8 @@ class S3Backup(object):
 
                 # Do not include the status directory in backups, should it
                 # exist
-                # TODO: turn the status directory name into a function?
-                if 'wal-e-status' in dirnames:
-                    dirnames.remove('wal-e-status')
+                if constants.STATUS_DIRECTORY in dirnames:
+                    dirnames.remove(constants.STATUS_DIRECTORY)
 
             for filename in filenames:
                 if is_cluster_toplevel and filename in ('postmaster.pid',
@@ -305,19 +305,22 @@ class S3Backup(object):
 
         p.join(raise_error=True)
 
-        # clean out and remove the status directory because we're done
-        # TODO: replace this join with a function to get the status directory
-        status_directory = os.path.join(pg_cluster_dir, 'wal-e-status')
+        # clean out and remove the status directory because we're done. we do
+        # this manually to avoid just blowing away the status directory in case
+        # anything ended up there that we didn't expect.
+        status_directory = os.path.join(pg_cluster_dir,
+                                        constants.STATUS_DIRECTORY)
         for file_name in os.listdir(status_directory):
-            # TODO: ensure file is in correct format, not just ending in .done
             if file_name.endswith('.done'):
                 os.unlink(os.path.join(status_directory, file_name))
 
         # if the directory is not empty, we are going to burst into flames. this
         # what we want. we should have removed everything that we placed in the
         # directory and there should be nothing unexpected there.
-        assert 0 == len(os.listdir(status_directory)), ('wal-e-status not '
-                                                        'empty as expected')
+        msg = ('status directory "{}" not empty as expected'
+               .format(status_directory))
+        assert 0 == len(os.listdir(status_directory)), msg
+
         os.rmdir(status_directory)
 
     def database_s3_backup(self, data_directory, *args, **kwargs):

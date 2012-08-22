@@ -21,6 +21,7 @@ import time
 import traceback
 import errno
 
+import wal_e.constants as constants
 import wal_e.storage.s3_storage as s3_storage
 import wal_e.log_help as log_help
 
@@ -410,8 +411,8 @@ class BackupFetcher(object):
         if not os.path.exists(self.local_root):
             return
 
-        # TODO: function?
-        status_directory = os.path.join(self.local_root, 'wal-e-status')
+        status_directory = os.path.join(self.local_root,
+                                        constants.STATUS_DIRECTORY)
         if not os.path.exists(status_directory):
             os.mkdir(status_directory, 0700)
 
@@ -440,8 +441,8 @@ class BackupFetcher(object):
             self.backup_info, partition_name)
 
         # check if we have already retrieved the partition
-        # TODO: replace this join with a function to get the status directory
-        status_directory = os.path.join(self.local_root, 'wal-e-status')
+        status_directory = os.path.join(self.local_root,
+                                        constants.STATUS_DIRECTORY)
         partition_status_path = os.path.join(status_directory,
                                              partition_name + '.done')
         if os.path.exists(partition_status_path):
