@@ -5,6 +5,7 @@ These are functions that are amenable to be called from other modules,
 with the intention that they are used in forked worker processes.
 
 """
+import os
 import boto
 import functools
 import gevent
@@ -18,6 +19,7 @@ import tarfile
 import tempfile
 import time
 import traceback
+import errno
 
 import wal_e.storage.s3_storage as s3_storage
 import wal_e.log_help as log_help
@@ -404,10 +406,50 @@ class BackupFetcher(object):
         self.bucket = self.s3_conn.get_bucket(self.layout.bucket_name())
         self.decrypt = decrypt
 
+    def mark_partition_as_done(self, partition_status_path, partition_name):
+        if not os.path.exists(self.local_root):
+            return
+
+        # TODO: function?
+        status_directory = os.path.join(self.local_root, 'wal-e-status')
+        if not os.path.exists(status_directory):
+            os.mkdir(status_directory, 0700)
+
+        fd = None
+        try:
+            fd = os.open(partition_status_path,
+                         os.O_CREAT | os.O_EXCL | os.O_RDWR, 0600)
+            os.write(fd, str(os.getpid()) + '\n')
+        except EnvironmentError as e:
+            # if we find that our status file already exists, another process
+            # must have created it. this can happen as a race condition
+            # involving multiple simultaneous backup-fetch processes running.
+            # this is a bad idea.
+            if e.errno in (errno.EEXIST, errno.EACCES):
+                raise UserException(
+                    msg='partition status file found unexpectedly',
+                    detail='The partition was {0}.'.format(partition_name),
+                    hint='Is there another wal-e running?')
+        finally:
+            if fd is not None:
+                os.close(fd)
+
     @retry()
     def fetch_partition(self, partition_name):
         part_abs_name = self.layout.basebackup_tar_partition(
             self.backup_info, partition_name)
+
+        # check if we have already retrieved the partition
+        # TODO: replace this join with a function to get the status directory
+        status_directory = os.path.join(self.local_root, 'wal-e-status')
+        partition_status_path = os.path.join(status_directory,
+                                             partition_name + '.done')
+        if os.path.exists(partition_status_path):
+            logger.info(
+                msg='partition already downloaded, skipping',
+                detail='The partition was {0}.'.format(partition_name),
+                hint='To force downloading, remove the wal-e-status directory')
+            return
 
         logger.info(
             msg='beginning partition download',
@@ -431,6 +473,9 @@ class BackupFetcher(object):
         g.get()
 
         pipeline.finish()
+
+        # mark that we have processed the partition
+        self.mark_partition_as_done(partition_status_path, partition_name)
 
 
 class BackupList(object):
